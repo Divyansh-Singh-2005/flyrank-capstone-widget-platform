@@ -1,0 +1,68 @@
+# Manifest for the FlyRank capstone evaluator.
+name: flyrank-capstone-widget-platform
+capstone: embeddable-widget-and-lead-capture-platform
+language: python
+run: docker compose up -d --build
+seed: docker compose exec -T api python -m scripts.seed
+test: docker compose exec -T api python -m pytest -q
+stop: docker compose down
+base_url: http://localhost:8000
+health: /health
+customer_site: http://localhost:5500
+abuse_page: http://localhost:5500/abuse.html
+dashboard_ui: http://localhost:8000/dashboard
+openapi_ui: http://localhost:8000/docs
+mailbox_ui: http://localhost:8025
+
+demo:
+  tenant_a:
+    email: owner@demo-widgets.dev
+    password: 'DemoOwner123!'
+    widgets: [wgt_demo000001, wgt_demopopup1]
+  tenant_b:
+    email: owner@other-widgets.dev
+    password: 'OtherOwner123!'
+    widgets: [wgt_other00001]
+
+endpoints:
+  - {method: GET, path: /health, auth: none, expect: 200}
+  - {method: POST, path: /auth/login, auth: none, expect: 200}
+  - {method: GET, path: /api/widgets, auth: bearer, expect: 200}
+  - {method: POST, path: /api/widgets, auth: bearer, expect: 201}
+  - {method: GET, path: '/api/widgets/{id}/embed', auth: bearer, expect: 200}
+  - {method: GET, path: '/widget.js?id=wgt_demo000001', auth: none, expect: 200}
+  - {method: GET, path: /static/widget.v1.js, auth: none, expect: 200}
+  - {method: GET, path: /public/widgets/wgt_demo000001/config, auth: none, expect: 200}
+  - {method: OPTIONS, path: /public/submissions, auth: none, expect: 204}
+  - {method: POST, path: /public/submissions, auth: none, expect: 201}
+  - {method: GET, path: /api/submissions, auth: bearer, expect: 200}
+  - {method: GET, path: /api/stats/summary, auth: bearer, expect: 200}
+  - {method: GET, path: /api/stats/timeseries, auth: bearer, expect: 200}
+  - {method: GET, path: /api/stats/geo, auth: bearer, expect: 200}
+
+probes:
+  - id: 1
+    name: valid submission from the second-origin page is stored and visible
+    how: 'Submit the form on http://localhost:5500, then GET /api/submissions as tenant A'
+    expect: '201, and the row appears with origin http://localhost:5500'
+  - id: 2
+    name: malformed and oversized payloads
+    how: 'POST invalid JSON and a body over 16 KB to /public/submissions (buttons on the abuse page)'
+    expect: '422 and 413 with a JSON error envelope, never 500'
+  - id: 3
+    name: burst is rate limited, service stays up
+    how: 'Send 15 POSTs with header X-Forwarded-For 203.0.113.10, then one with a different X-Forwarded-For'
+    expect: '10 x 201 then 429 with Retry-After; the next request from another client returns 201'
+    note: 'Inside Docker every host client arrives from one gateway IP, so X-Forwarded-For (TRUST_PROXY_HEADERS=true) simulates distinct visitors.'
+  - id: 4
+    name: geo provider fallback
+    how: 'POST /dev/geo {"mode":"mock","a_down":true}, submit; then POST /dev/geo {"b_down":true}, submit; reset with {"mode":"real","a_down":false,"b_down":false}'
+    expect: 'first row geo_provider mock-b; second row stored with no geo'
+  - id: 5
+    name: failing email side effect
+    how: 'FORCE_EMAIL_FAILURE=true docker compose up -d worker, submit, then docker compose logs worker; restore with docker compose up -d worker'
+    expect: 'submission returns 201 and is listed; worker logs job_retry twice and ALERT job_dead'
+  - id: 6
+    name: honeypot
+    how: 'POST a submission with "website": "http://spam.test"'
+    expect: '200 {"id": null, "status": "received"}; nothing stored, no email job'
