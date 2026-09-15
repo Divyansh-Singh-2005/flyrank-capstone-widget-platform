@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Abuse test page</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 24px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  td, th { border: 1px solid #ccc; padding: 4px 6px; text-align: left; vertical-align: top; }
+  td.body { font-family: monospace; word-break: break-all; }
+  button { margin: 0 6px 6px 0; }
+</style>
+</head>
+<body>
+<h1>Abuse test page</h1>
+<p>Every request is a real cross-origin <code>fetch</code> from <b id="origin"></b> to the API.
+   All buttons share your real IP, so after a burst this browser is rate limited until Retry-After passes.</p>
+<p>
+  <button data-test="valid">Valid submission</button>
+  <button data-test="malformed">Malformed JSON</button>
+  <button data-test="oversized">Oversized payload (20 KB)</button>
+  <button data-test="plain">text/plain body</button>
+  <button data-test="unknown">Unknown field</button>
+  <button data-test="honeypot">Bot fills honeypot</button>
+  <button data-test="burst">Burst x15</button>
+  <button id="clear">Clear</button>
+  <a href="index.html">Back to the shop</a>
+</p>
+<table>
+  <thead><tr><th>#</th><th>Test</th><th>Status</th><th>Response body</th></tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+<script>
+(function () {
+  "use strict";
+  var API = "http://localhost:8000/public/submissions";
+  var WIDGET = "wgt_demo000001";
+  var counter = 0;
+  document.getElementById("origin").textContent = location.origin;
+
+  function addRow(label, status, body) {
+    var tr = document.createElement("tr");
+    [String(++counter), label, String(status), body].forEach(function (value, i) {
+      var td = document.createElement("td");
+      if (i === 3) { td.className = "body"; }
+      td.textContent = value.length > 300 ? value.slice(0, 300) + "..." : value;
+      tr.appendChild(td);
+    });
+    document.getElementById("rows").prepend(tr);
+  }
+
+  function email(tag) { return tag + "-" + Date.now() + "@abuse-widgets.dev"; }
+  function payload(fields, website) { return JSON.stringify({ widget_id: WIDGET, fields: fields, website: website || "" }); }
+
+  function send(label, body, contentType, extraHeaders) {
+    var headers = { "Content-Type": contentType || "application/json" };
+    Object.keys(extraHeaders || {}).forEach(function (k) { headers[k] = extraHeaders[k]; });
+    return fetch(API, { method: "POST", mode: "cors", credentials: "omit", headers: headers, body: body })
+      .then(function (res) {
+        return res.text().then(function (text) {
+          var retry = res.headers.get("Retry-After");
+          addRow(label, res.status + (retry ? " (Retry-After " + retry + "s)" : ""), text);
+          return res.status;
+        });
+      })
+      .catch(function (err) { addRow(label, "network error", String(err)); return 0; });
+  }
+
+  var tests = {
+    valid: function () { return send("valid", payload({ email: email("valid"), name: "Browser Visitor" }), null, { "Idempotency-Key": "abuse-" + Date.now() }); },
+    malformed: function () { return send("malformed JSON", '{"widget_id": "wgt_'); },
+    oversized: function () { return send("oversized 20 KB", payload({ email: email("big"), name: new Array(20001).join("x") })); },
+    plain: function () { return send("text/plain", payload({ email: email("plain") }), "text/plain"); },
+    unknown: function () { return send("unknown field", payload({ email: email("unknown"), is_admin: "yes" })); },
+    honeypot: function () { return send("honeypot filled", payload({ email: email("bot"), name: "Bot" }, "http://cheap-pills.test")); },
+    burst: function () {
+      var jobs = [];
+      for (var i = 1; i <= 15; i++) { jobs.push(send("burst " + i, payload({ email: email("burst" + i) }))); }
+      return Promise.all(jobs).then(function (codes) {
+        addRow("burst summary", codes.join(" "), "accepted until the per-IP limit is reached, then 429");
+      });
+    }
+  };
+
+  document.querySelectorAll("button[data-test]").forEach(function (button) {
+    button.addEventListener("click", function () { tests[button.getAttribute("data-test")](); });
+  });
+  document.getElementById("clear").addEventListener("click", function () {
+    document.getElementById("rows").replaceChildren();
+    counter = 0;
+  });
+})();
+</script>
+</body>
+</html>

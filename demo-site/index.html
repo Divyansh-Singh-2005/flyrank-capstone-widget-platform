@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Acme Bakery - demo customer site</title>
+<style>
+  body { font-family: Georgia, serif; margin: 0; background: #fffaf3; color: #3b2f2f; }
+  header { background: #8b4513; color: #fff; padding: 24px 32px; }
+  header p { margin: 4px 0 0; opacity: .85; }
+  main { display: grid; grid-template-columns: 1fr 360px; gap: 32px; padding: 32px; max-width: 1100px; }
+  .snippet { font-family: monospace; font-size: 12px; background: #f3e9dc; padding: 12px; border-radius: 6px; word-break: break-all; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Acme Bakery</h1>
+  <p>A plain HTML page that knows nothing about the widget platform.</p>
+</header>
+<main>
+  <section>
+    <h2>Fresh bread every morning</h2>
+    <p>Sourdough, rye and croissants baked before sunrise. Sign up to hear about seasonal specials.</p>
+    <h3>How the widget got here</h3>
+    <p>This page is served from <b id="origin"></b>. The API lives on <b>http://localhost:8000</b>, a different origin.
+       The only integration is the one-line snippet (plus an optional placement div):</p>
+    <div class="snippet">&lt;script src="http://localhost:8000/widget.js?id=wgt_demo000001" async&gt;&lt;/script&gt;</div>
+    <p>The dark popover in the corner is a second widget (<code>wgt_demopopup1</code>) added with the same kind of snippet.</p>
+    <p><a href="abuse.html">Abuse test page</a> - fire malformed, oversized, honeypot and burst requests from this origin.</p>
+  </section>
+  <aside>
+    <div data-flyrank-widget="wgt_demo000001"></div>
+  </aside>
+</main>
+<script>document.getElementById("origin").textContent = location.origin;</script>
+<script src="http://localhost:8000/widget.js?id=wgt_demo000001" async></script>
+<script src="http://localhost:8000/widget.js?id=wgt_demopopup1" async></script>
+</body>
+</html>
