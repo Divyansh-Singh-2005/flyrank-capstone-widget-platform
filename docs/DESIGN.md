@@ -138,3 +138,14 @@ demo-site/          second-origin customer test page (served on :5500)
 - **No form-builder UI and no hosted CDN.** Widgets are created via the API; the customer site is a local HTML page on a second port.
 - No visitor accounts, CAPTCHA, or GDPR export flows in the core (possible stretch goals).
 - No multi-instance deployment; the in-memory rate limiter is a documented single-instance limitation.
+
+## 10. Changes made during Phase 2
+- Honeypot check moved before per-field validation, so bots get a fake success and no validation feedback.
+- IP hash is HMAC-SHA256 keyed with `IP_HASH_SALT`; raw IPs are never stored or logged.
+- `TRUST_PROXY_HEADERS`: X-Forwarded-For is honoured only when explicitly enabled (locally to simulate many visitors; in production only behind a trusted proxy).
+- Dev-only endpoints, mounted only when `APP_ENV=development`: `GET/POST /dev/geo` switches real/mock providers and toggles mock A/B down at runtime; `POST /dev/rate-limits/reset`.
+- Only allowed requests consume rate-limit budget; rejected ones do not.
+- Geo enrichment runs inline with a per-provider timeout (worst case about 2x timeout of added latency when both real providers hang).
+- Email is a transactional outbox: the job row is committed with the submission; the worker sends it later with exponential backoff and marks it `dead` + ERROR log after `JOB_MAX_ATTEMPTS`.
+- Database outage: 3 s connect timeout, TCP keepalives and a 10 s statement timeout; the API answers 503 `service_unavailable` with `Retry-After` instead of hanging; `worker --drain` exits with code 1 after 3 consecutive DB errors.
+- Dashboard pagination is keyset on `created_at` via the `before` cursor.

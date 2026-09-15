@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 60
 
     ip_hash_salt: str
+    trust_proxy_headers: bool = False
 
     rate_limit_per_ip: str = "10/minute"
     rate_limit_per_widget: str = "60/minute"

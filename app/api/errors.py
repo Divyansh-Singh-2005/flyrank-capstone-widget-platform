@@ -3,6 +3,7 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import OperationalError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 logger = logging.getLogger("app.errors")
@@ -18,18 +19,27 @@ STATUS_CODE_NAMES = {
     415: "unsupported_media_type",
     422: "validation_error",
     429: "rate_limited",
+    503: "service_unavailable",
 }
 
 
 class AppError(Exception):
     """Expected, client-facing error with a stable code."""
 
-    def __init__(self, status_code: int, code: str, message: str, headers: dict | None = None):
+    def __init__(
+        self,
+        status_code: int,
+        code: str,
+        message: str,
+        headers: dict | None = None,
+        details: list | None = None,
+    ):
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.message = message
         self.headers = headers
+        self.details = details
 
 
 def error_body(code: str, message: str, details: list | None = None) -> dict:
@@ -44,7 +54,7 @@ def register_error_handlers(app: FastAPI) -> None:
     async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
         return JSONResponse(
             status_code=exc.status_code,
-            content=error_body(exc.code, exc.message),
+            content=error_body(exc.code, exc.message, exc.details),
             headers=exc.headers,
         )
 
@@ -69,6 +79,21 @@ def register_error_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=422,
             content=error_body("validation_error", "Request validation failed", details),
+        )
+
+    @app.exception_handler(OperationalError)
+    async def handle_db_unavailable(request: Request, exc: OperationalError) -> JSONResponse:
+        # Log only the driver error type: messages can contain connection details.
+        logger.error(
+            "database_unavailable %s %s error=%s",
+            request.method,
+            request.url.path,
+            type(exc.orig).__name__ if exc.orig is not None else "OperationalError",
+        )
+        return JSONResponse(
+            status_code=503,
+            content=error_body("service_unavailable", "Service temporarily unavailable, please retry"),
+            headers={"Retry-After": "5"},
         )
 
     @app.exception_handler(Exception)

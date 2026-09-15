@@ -13,12 +13,27 @@ NAMING_CONVENTION = {
     "pk": "pk_%(table_name)s",
 }
 
+# Fail fast when the database is unreachable instead of hanging requests for minutes.
+CONNECT_ARGS = {
+    "connect_timeout": 3,
+    "keepalives": 1,
+    "keepalives_idle": 10,
+    "keepalives_interval": 3,
+    "keepalives_count": 3,
+    "options": "-c statement_timeout=10000",
+}
+
 
 class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
 
-engine = create_engine(get_settings().database_url, pool_pre_ping=True)
+engine = create_engine(
+    get_settings().database_url,
+    pool_pre_ping=True,
+    pool_timeout=5,
+    connect_args=CONNECT_ARGS,
+)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 
