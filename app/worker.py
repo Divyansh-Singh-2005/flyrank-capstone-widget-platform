@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import signal
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -118,11 +119,17 @@ def run(drain: bool, poll_seconds: float) -> None:
             time.sleep(poll_seconds)
 
 
+def _stop(signum, frame):
+    # PID 1 in a container ignores SIGTERM by default; turn it into a clean shutdown.
+    raise KeyboardInterrupt
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Background job worker")
     parser.add_argument("--drain", action="store_true", help="exit once no pending jobs remain")
     parser.add_argument("--poll", type=float, default=1.0, help="seconds between polls")
     args = parser.parse_args()
+    signal.signal(signal.SIGTERM, _stop)
     try:
         run(args.drain, args.poll)
     except KeyboardInterrupt:

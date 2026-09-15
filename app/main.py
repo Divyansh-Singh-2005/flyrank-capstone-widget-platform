@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import Response
 
 from app.api.errors import register_error_handlers
-from app.api.routes import auth, dev, health, public, submissions, widgets
+from app.api.routes import auth, delivery, dev, health, public, stats, submissions, widgets
 from app.config import get_settings
 
 logger = logging.getLogger("app")
@@ -22,7 +22,7 @@ PREFLIGHT_HEADERS = {
 def create_app() -> FastAPI:
     settings = get_settings()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    app = FastAPI(title="Widget & Lead-Capture Platform", version="0.2.0")
+    app = FastAPI(title="Widget & Lead-Capture Platform", version="0.3.0")
     register_error_handlers(app)
 
     @app.middleware("http")
@@ -46,6 +46,8 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(widgets.router)
     app.include_router(submissions.router)
+    app.include_router(stats.router)
+    app.include_router(delivery.router)
     app.include_router(public.router)
     if settings.app_env == "development":
         app.include_router(dev.router)

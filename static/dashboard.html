@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Widget Platform - Owner Dashboard</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 24px; color: #1f2328; background: #f6f8fa; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin-top: 24px; }
+  table { border-collapse: collapse; width: 100%; background: #fff; font-size: 13px; }
+  th, td { border: 1px solid #d0d7de; padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #eaeef2; }
+  td { word-break: break-word; }
+  .cards { display: flex; gap: 12px; flex-wrap: wrap; }
+  .card { background: #fff; border: 1px solid #d0d7de; border-radius: 8px; padding: 12px 16px; min-width: 140px; }
+  .card b { display: block; font-size: 22px; }
+  .bar { background: #1f6feb; height: 10px; border-radius: 3px; min-width: 1px; }
+  form#login { background: #fff; border: 1px solid #d0d7de; padding: 16px; max-width: 320px; border-radius: 8px; }
+  form#login input { display: block; width: 100%; margin: 4px 0 10px; padding: 6px; box-sizing: border-box; }
+  .muted { color: #57606a; font-size: 12px; }
+  .hidden { display: none; }
+  #error { color: #cf222e; }
+</style>
+</head>
+<body>
+<h1>Owner dashboard</h1>
+<p class="muted">Same-origin page served by the API. The access token lives in memory only.</p>
+
+<form id="login">
+  <label>Email <input id="email" type="email" autocomplete="username" required value="owner@demo-widgets.dev"></label>
+  <label>Password <input id="password" type="password" autocomplete="current-password" required></label>
+  <button type="submit">Sign in</button>
+</form>
+<p id="error" role="alert"></p>
+
+<div id="app" class="hidden">
+  <p><span id="who"></span> <button id="refresh" type="button">Refresh</button> <button id="logout" type="button">Sign out</button></p>
+  <div class="cards" id="cards"></div>
+  <h2>Widgets</h2><div id="widgets"></div>
+  <h2>Submissions per day (last 14 days, UTC)</h2><div id="series"></div>
+  <h2>Geo breakdown</h2><div id="geo"></div>
+  <h2>Latest submissions</h2><div id="subs"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var token = null;
+  function $(id) { return document.getElementById(id); }
+
+  function table(container, headers, rows) {
+    var t = document.createElement("table");
+    var head = document.createElement("tr");
+    headers.forEach(function (h) { var th = document.createElement("th"); th.textContent = h; head.appendChild(th); });
+    t.appendChild(head);
+    rows.forEach(function (row) {
+      var tr = document.createElement("tr");
+      row.forEach(function (cell) {
+        var td = document.createElement("td");
+        if (cell instanceof Node) { td.appendChild(cell); } else { td.textContent = cell === null || cell === undefined ? "" : String(cell); }
+        tr.appendChild(td);
+      });
+      t.appendChild(tr);
+    });
+    container.replaceChildren(t);
+  }
+
+  function bar(value, max) {
+    var d = document.createElement("div");
+    d.className = "bar";
+    d.style.width = (max ? Math.round((value / max) * 100) : 0) + "%";
+    return d;
+  }
+
+  function card(label, value) {
+    var c = document.createElement("div");
+    c.className = "card";
+    var b = document.createElement("b");
+    b.textContent = String(value);
+    c.appendChild(b);
+    c.appendChild(document.createTextNode(label));
+    return c;
+  }
+
+  function logout() {
+    token = null;
+    $("app").classList.add("hidden");
+    $("login").classList.remove("hidden");
+  }
+
+  function api(path) {
+    return fetch(path, { headers: { Authorization: "Bearer " + token } }).then(function (res) {
+      if (res.status === 401) { logout(); throw new Error("Session expired, please sign in again."); }
+      if (!res.ok) { throw new Error(path + " failed with " + res.status); }
+      return res.json();
+    });
+  }
+
+  function maxOf(values) { return values.reduce(function (a, b) { return Math.max(a, b); }, 0); }
+
+  function load() {
+    $("error").textContent = "";
+    Promise.all([
+      api("/api/stats/summary"),
+      api("/api/stats/timeseries?bucket=day&days=14"),
+      api("/api/stats/geo"),
+      api("/api/submissions?limit=50")
+    ]).then(function (res) {
+      var s = res[0], ts = res[1], geo = res[2], subs = res[3];
+      $("cards").replaceChildren(
+        card("total submissions", s.total_submissions), card("last 24 h", s.last_24h),
+        card("last 7 days", s.last_7d), card("widgets", s.widget_count)
+      );
+      var names = {};
+      s.widgets.forEach(function (w) { names[w.id] = w.public_id; });
+      table($("widgets"), ["Public id", "Title", "Type", "Active", "Total", "Last 7 d", "Last submission (UTC)"],
+        s.widgets.map(function (w) {
+          return [w.public_id, w.title, w.type, w.is_active ? "yes" : "no", w.total, w.last_7d,
+            w.last_submission_at ? w.last_submission_at.replace("T", " ").slice(0, 19) : "-"];
+        }));
+      var dayMax = maxOf(ts.points.map(function (p) { return p.count; }));
+      table($("series"), ["Day", "Count", ""], ts.points.map(function (p) { return [p.t.slice(0, 10), p.count, bar(p.count, dayMax)]; }));
+      var geoMax = maxOf(geo.countries.map(function (c) { return c.count; }));
+      table($("geo"), ["Country", "Count", ""], geo.countries.map(function (c) { return [c.country, c.count, bar(c.count, geoMax)]; }));
+      table($("subs"), ["Received (UTC)", "Widget", "Data", "Origin", "Country", "City", "Geo provider"],
+        subs.items.map(function (i) {
+          return [i.created_at.replace("T", " ").slice(0, 19), names[i.widget_id] || i.widget_id,
+            JSON.stringify(i.data), i.origin, i.country, i.city, i.geo_provider];
+        }));
+    }).catch(function (err) { $("error").textContent = err.message; });
+  }
+
+  $("login").addEventListener("submit", function (event) {
+    event.preventDefault();
+    $("error").textContent = "";
+    fetch("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: $("email").value, password: $("password").value })
+    }).then(function (res) {
+      return res.json().then(function (body) { return { ok: res.ok, body: body }; });
+    }).then(function (result) {
+      if (!result.ok) { throw new Error((result.body.error && result.body.error.message) || "Login failed"); }
+      token = result.body.access_token;
+      $("password").value = "";
+      $("who").textContent = "Signed in as " + $("email").value;
+      $("login").classList.add("hidden");
+      $("app").classList.remove("hidden");
+      load();
+    }).catch(function (err) { $("error").textContent = err.message; });
+  });
+  $("refresh").addEventListener("click", load);
+  $("logout").addEventListener("click", logout);
+})();
+</script>
+</body>
+</html>
