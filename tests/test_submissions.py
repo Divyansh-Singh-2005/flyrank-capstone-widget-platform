@@ -138,3 +138,17 @@ def test_origin_allow_list(client, owner):
     allowed = submit(client, restricted["public_id"], fields, headers=visitor(origin="HTTP://LOCALHOST:5500"))
     assert allowed.status_code == 201
     assert len(list_items(client, owner)) == 1
+
+def test_json_depth_limit_is_platform_independent(client, owner, widget):
+    from app.services.submission_service import MAX_JSON_DEPTH, _json_too_deep
+
+    assert _json_too_deep(b"[" * (MAX_JSON_DEPTH + 1) + b"]" * (MAX_JSON_DEPTH + 1))
+    assert not _json_too_deep(b"[" * MAX_JSON_DEPTH + b"]" * MAX_JSON_DEPTH)
+    assert not _json_too_deep(b'{"a": "' + b"[" * 100 + b'"}')  # brackets inside strings do not count
+    assert not _json_too_deep(b'{"a": "\\"[[[[\\""}')          # escaped quotes stay inside the string
+
+    nested = '{"widget_id":"%s","fields":%s}' % (widget["public_id"], '{"x":' * 40 + '"y"' + "}" * 40)
+    response = client.post("/public/submissions", content=nested, headers=visitor(**{"Content-Type": JSON}))
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_json"
+    assert list_items(client, owner) == []

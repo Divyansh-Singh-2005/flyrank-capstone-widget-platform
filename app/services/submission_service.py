@@ -51,7 +51,36 @@ def _rate_limited(scope: str, retry_after: float) -> AppError:
     )
 
 
+MAX_JSON_DEPTH = 32
+
+
+def _json_too_deep(body: bytes, limit: int = MAX_JSON_DEPTH) -> bool:
+    """Linear pre-scan so nesting depth is rejected the same way on every platform."""
+    depth = 0
+    in_string = False
+    escaped = False
+    for byte in body:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif byte == 0x5C:  # backslash
+                escaped = True
+            elif byte == 0x22:  # quote
+                in_string = False
+        elif byte == 0x22:
+            in_string = True
+        elif byte in (0x5B, 0x7B):  # [ {
+            depth += 1
+            if depth > limit:
+                return True
+        elif byte in (0x5D, 0x7D):  # ] }
+            depth -= 1
+    return False
+
+
 def _parse_envelope(body: bytes) -> SubmissionEnvelope:
+    if _json_too_deep(body):
+        raise AppError(422, "invalid_json", f"JSON nesting exceeds {MAX_JSON_DEPTH} levels")
     try:
         payload = json.loads(body)
     except (ValueError, RecursionError):
